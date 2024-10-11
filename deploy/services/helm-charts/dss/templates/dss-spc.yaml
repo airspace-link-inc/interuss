@@ -1,0 +1,36 @@
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  labels:
+    app: cockroachdb 
+  name: kv-eng-utm-dss-cus-spc
+spec:
+  parameters:
+    cloudName: ""
+    keyvaultName: kv-eng-utm-dss-cus
+    objects: |
+      array:
+      - |
+        objectType: secret
+        objectName: CRDB-CA-CERT
+      - |
+        objectType: secret
+        objectName: CRDB-CLIENT-ROOT-CERT
+      - |
+        objectType: secret
+        objectName: CRDB-NODE-CERT
+    tenantId: 9c7b8826-782b-43ad-b6b6-fecc5ee9ad7f
+    usePodIdentity: "false"
+    useVMManagedIdentity: "true"
+    userAssignedIdentityID: k539da018-338f-4369-b692-639628184ec3 
+  provider: azure
+  secretObjects:
+  - data:
+    - key: CRDB-CA-CERT
+      objectName: CRDB-CA-CERT
+    - key: CRDB-CLIENT-ROOT-CERT
+      objectName: CRDB-CLIENT-ROOT-CERT
+    - key: CRDB-NODE-CERT
+      objectName: CRDB-NODE-CERT
+    secretName: kv-eng-utm-dss-cus-secret
+    type: Opaque

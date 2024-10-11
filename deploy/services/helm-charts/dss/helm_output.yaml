@@ -1,0 +1,773 @@
+---
+# Source: dss/charts/cockroachdb/templates/poddisruptionbudget.yaml
+kind: PodDisruptionBudget
+apiVersion: policy/v1
+metadata:
+  name: dss-cockroachdb-budget
+  namespace: "argocd"
+  labels:
+    helm.sh/chart: cockroachdb-10.0.7
+    app.kubernetes.io/name: cockroachdb
+    app.kubernetes.io/instance: "dss"
+    app.kubernetes.io/managed-by: "Helm"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cockroachdb
+      app.kubernetes.io/instance: "dss"
+      app.kubernetes.io/component: cockroachdb
+  maxUnavailable: 1
+---
+# Source: dss/charts/cockroachdb/templates/serviceaccount.yaml
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: dss-cockroachdb
+  namespace: "argocd"
+  labels:
+    helm.sh/chart: cockroachdb-10.0.7
+    app.kubernetes.io/name: cockroachdb
+    app.kubernetes.io/instance: "dss"
+    app.kubernetes.io/managed-by: "Helm"
+---
+# Source: dss/charts/cockroachdb/templates/role.yaml
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: dss-cockroachdb
+  namespace: "argocd"
+  labels:
+    helm.sh/chart: cockroachdb-10.0.7
+    app.kubernetes.io/name: cockroachdb
+    app.kubernetes.io/instance: "dss"
+    app.kubernetes.io/managed-by: "Helm"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+---
+# Source: dss/charts/cockroachdb/templates/rolebinding.yaml
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: dss-cockroachdb
+  namespace: "argocd"
+  labels:
+    helm.sh/chart: cockroachdb-10.0.7
+    app.kubernetes.io/name: cockroachdb
+    app.kubernetes.io/instance: "dss"
+    app.kubernetes.io/managed-by: "Helm"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dss-cockroachdb
+subjects:
+  - kind: ServiceAccount
+    name: dss-cockroachdb
+    namespace: "argocd"
+---
+# Source: dss/charts/cockroachdb/templates/service.discovery.yaml
+# This service only exists to create DNS entries for each pod in
+# the StatefulSet such that they can resolve each other's IP addresses.
+# It does not create a load-balanced ClusterIP and should not be used directly
+# by clients in most circumstances.
+kind: Service
+apiVersion: v1
+metadata:
+  name: dss-cockroachdb
+  namespace: "argocd"
+  labels:
+    helm.sh/chart: cockroachdb-10.0.7
+    app.kubernetes.io/name: cockroachdb
+    app.kubernetes.io/instance: "dss"
+    app.kubernetes.io/managed-by: "Helm"
+    app.kubernetes.io/component: cockroachdb
+  annotations:
+    # Use this annotation in addition to the actual field below because the
+    # annotation will stop being respected soon, but the field is broken in
+    # some versions of Kubernetes:
+    # https://github.com/kubernetes/kubernetes/issues/58662
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+    # Enable automatic monitoring of all instances when Prometheus is running
+    # in the cluster.
+    prometheus.io/scrape: "true"
+    prometheus.io/path: _status/vars
+    prometheus.io/port: "8080"
+spec:
+  clusterIP: None
+  # We want all Pods in the StatefulSet to have their addresses published for
+  # the sake of the other CockroachDB Pods even before they're ready, since they
+  # have to be able to talk to each other in order to become ready.
+  publishNotReadyAddresses: true
+  ports:
+    # The main port, served by gRPC, serves Postgres-flavor SQL, inter-node
+    # traffic and the CLI.
+    - name: "grpc"
+      port: 26257
+      targetPort: grpc
+    # The secondary port serves the UI as well as health and debug endpoints.
+    - name: "http"
+      port: 8080
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: cockroachdb
+    app.kubernetes.io/instance: "dss"
+    app.kubernetes.io/component: cockroachdb
+---
+# Source: dss/charts/cockroachdb/templates/service.public.yaml
+# This Service is meant to be used by clients of the database.
+# It exposes a ClusterIP that will automatically load balance connections
+# to the different database Pods.
+kind: Service
+apiVersion: v1
+metadata:
+  name: dss-cockroachdb-public
+  namespace: "argocd"
+  labels:
+    helm.sh/chart: cockroachdb-10.0.7
+    app.kubernetes.io/name: cockroachdb
+    app.kubernetes.io/instance: "dss"
+    app.kubernetes.io/managed-by: "Helm"
+    app.kubernetes.io/component: cockroachdb
+  annotations:
+    service.alpha.kubernetes.io/app-protocols: '{"http":"HTTPS"}'
+spec:
+  type: "ClusterIP"
+  ports:
+    # The main port, served by gRPC, serves Postgres-flavor SQL, inter-node
+    # traffic and the CLI.
+    - name: "grpc"
+      port: 26257
+      targetPort: grpc
+    # The secondary port serves the UI as well as health and debug endpoints.
+    - name: "http"
+      port: 8080
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: cockroachdb
+    app.kubernetes.io/instance: "dss"
+    app.kubernetes.io/component: cockroachdb
+---
+# Source: dss/templates/cockroachdb-loadbalancers.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+    
+  labels:
+    app: cockroachdb
+    name: cockroach-db-external-node-0
+  name: cockroach-db-external-node-0
+  namespace: default
+spec:
+  
+  ports:
+    - name: cockroach-db-external-node-0
+      port: 26257
+      targetPort: 26257
+  publishNotReadyAddresses: true
+  selector:
+    statefulset.kubernetes.io/pod-name: dss-cockroachdb-0
+  type: LoadBalancer
+---
+# Source: dss/templates/cockroachdb-loadbalancers.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+    
+  labels:
+    app: cockroachdb
+    name: cockroach-db-external-node-1
+  name: cockroach-db-external-node-1
+  namespace: default
+spec:
+  
+  ports:
+    - name: cockroach-db-external-node-1
+      port: 26257
+      targetPort: 26257
+  publishNotReadyAddresses: true
+  selector:
+    statefulset.kubernetes.io/pod-name: dss-cockroachdb-1
+  type: LoadBalancer
+---
+# Source: dss/templates/cockroachdb-loadbalancers.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+    
+  labels:
+    app: cockroachdb
+    name: cockroach-db-external-node-2
+  name: cockroach-db-external-node-2
+  namespace: default
+spec:
+  
+  ports:
+    - name: cockroach-db-external-node-2
+      port: 26257
+      targetPort: 26257
+  publishNotReadyAddresses: true
+  selector:
+    statefulset.kubernetes.io/pod-name: dss-cockroachdb-2
+  type: LoadBalancer
+---
+# Source: dss/templates/dss-core-service.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    name: dss-core-service
+  name: dss-core-service
+spec:
+  minReadySeconds: 30
+  replicas: 3
+  selector:
+    matchLabels:
+      app: dss-core-service
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: dss-core-service
+    spec:
+      initContainers:
+        - name: wait-for-cockroachdb
+          image: alpine:3.17.3
+          command: [ 'sh', '-c', "until wget -nv http://dss-cockroachdb-public.default:8080/health; do echo waiting for cockroachdb; sleep 2; done" ]
+        
+        - name: wait-for-schema-rid
+          image: cockroachdb/cockroach:v22.2.7
+          volumeMounts:
+            - mountPath: /cockroach/cockroach-certs/ca.crt
+              name: ca-certs
+              subPath: ca.crt
+            - mountPath: /cockroach/cockroach-certs/client.root.crt
+              name: client-certs
+              subPath: client.root.crt
+            - mountPath: /cockroach/cockroach-certs/client.root.key
+              name: client-certs
+              subPath: client.root.key
+          command:
+            - sh
+            - -c
+            - "/cockroach/cockroach sql --certs-dir /cockroach/cockroach-certs/ --host dss-cockroachdb-public.default --port \"26257\" --format raw -e \"SELECT * FROM crdb_internal.databases where name = 'rid';\" | grep rid"
+        
+        - name: wait-for-schema-scd
+          image: cockroachdb/cockroach:v22.2.7
+          volumeMounts:
+            - mountPath: /cockroach/cockroach-certs/ca.crt
+              name: ca-certs
+              subPath: ca.crt
+            - mountPath: /cockroach/cockroach-certs/client.root.crt
+              name: client-certs
+              subPath: client.root.crt
+            - mountPath: /cockroach/cockroach-certs/client.root.key
+              name: client-certs
+              subPath: client.root.key
+          command:
+            - sh
+            - -c
+            - "/cockroach/cockroach sql --certs-dir /cockroach/cockroach-certs/ --host dss-cockroachdb-public.default --port \"26257\" --format raw -e \"SELECT * FROM crdb_internal.databases where name = 'scd';\" | grep scd"
+      containers:
+        - args:
+            - --accepted_jwt_audiences=dss.example.com
+            - --addr=:8080
+            - --cockroach_host=dss-cockroachdb-public.default
+            - --cockroach_port=26257
+            - --cockroach_ssl_dir=/cockroach/cockroach-certs
+            - --cockroach_ssl_mode=verify-full
+            - --cockroach_user=root
+            - --dump_requests=true
+            - --enable_scd=true
+            - --garbage_collector_spec=@every 30m
+            - --gcp_prof_service_name=
+            - --locality=
+            - --public_key_files=/test-certs/auth2.pem
+          command:
+            - core-service
+          image: docker.io/interuss/dss:v0.15.0
+          imagePullPolicy: Always
+          name: core-service
+          ports:
+            - containerPort: 8080
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /healthy
+              port: 8080
+          stdin: false
+          tty: false
+          volumeMounts:
+            - mountPath: /cockroach/cockroach-certs/ca.crt
+              name: ca-certs
+              subPath: ca.crt
+            - mountPath: /cockroach/cockroach-certs/client.root.crt
+              name: client-certs
+              subPath: client.root.crt
+            - mountPath: /cockroach/cockroach-certs/client.root.key
+              name: client-certs
+              subPath: client.root.key
+            - mountPath: /public-certs
+              name: public-certs
+      imagePullSecrets: []
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: ca-certs
+          secret:
+            defaultMode: 256
+            secretName: cockroachdb.ca.crt
+        - name: client-certs
+          secret:
+            defaultMode: 256
+            secretName: cockroachdb.client.root
+        - name: public-certs
+          secret:
+            defaultMode: 256
+            secretName: dss.public.certs
+---
+# Source: dss/charts/cockroachdb/templates/statefulset.yaml
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  name: dss-cockroachdb
+  namespace: "argocd"
+  labels:
+    helm.sh/chart: cockroachdb-10.0.7
+    app.kubernetes.io/name: cockroachdb
+    app.kubernetes.io/instance: "dss"
+    app.kubernetes.io/managed-by: "Helm"
+    app.kubernetes.io/component: cockroachdb
+spec:
+  serviceName: dss-cockroachdb
+  replicas: 3
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: "Parallel"
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cockroachdb
+      app.kubernetes.io/instance: "dss"
+      app.kubernetes.io/component: cockroachdb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cockroachdb
+        app.kubernetes.io/instance: "dss"
+        app.kubernetes.io/component: cockroachdb
+    spec:
+      serviceAccountName: dss-cockroachdb
+      initContainers:
+        - name: copy-certs
+          image: "busybox"
+          imagePullPolicy: "IfNotPresent"
+          command:
+            - /bin/sh
+            - -c
+            - "cp -f /certs/* /cockroach-certs/; chmod 0400 /cockroach-certs/*.key"
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: certs
+              mountPath: /cockroach-certs/
+            - name: certs-secret
+              mountPath: /certs/
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: cockroachdb
+                    app.kubernetes.io/instance: "dss"
+                    app.kubernetes.io/component: cockroachdb
+      topologySpreadConstraints:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: cockroachdb
+            app.kubernetes.io/instance: "dss"
+            app.kubernetes.io/component: cockroachdb
+        maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: ScheduleAnyway
+      # No pre-stop hook is required, a SIGTERM plus some time is all that's
+      # needed for graceful shutdown of a node.
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: db
+          image: "cockroachdb/cockroach:v22.2.7"
+          imagePullPolicy: "IfNotPresent"
+          args:
+            - shell
+            - -ecx
+            # The use of qualified `hostname -f` is crucial:
+            # Other nodes aren't able to look up the unqualified hostname.
+            #
+            # `--join` CLI flag is hardcoded to exactly 3 Pods, because:
+            # 1. Having `--join` value depending on `statefulset.replicas`
+            #    will trigger undesired restart of existing Pods when
+            #    StatefulSet is scaled up/down. We want to scale without
+            #    restarting existing Pods.
+            # 2. At least one Pod in `--join` is enough to successfully
+            #    join CockroachDB cluster and gossip with all other existing
+            #    Pods, even if there are 3 or more Pods.
+            # 3. It's harmless for `--join` to have 3 Pods even for 1-Pod
+            #    clusters, while it gives us opportunity to scale up even if
+            #    some Pods of existing cluster are down (for whatever reason).
+            # See details explained here:
+            # https://github.com/helm/charts/pull/18993#issuecomment-558795102
+            - >-
+              exec /cockroach/cockroach
+              start --join=${STATEFULSET_NAME}-0.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-1.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-2.${STATEFULSET_FQDN}:26257
+              --advertise-host=$(hostname).${STATEFULSET_FQDN}
+              --certs-dir=/cockroach/cockroach-certs/
+              --http-port=8080
+              --port=26257
+              --cache=25%
+              --max-sql-memory=25%
+              --logtostderr=INFO
+          env:
+            - name: STATEFULSET_NAME
+              value: dss-cockroachdb
+            - name: STATEFULSET_FQDN
+              value: dss-cockroachdb.argocd.svc.cluster.local
+            - name: COCKROACH_CHANNEL
+              value: kubernetes-helm
+          ports:
+            - name: grpc
+              containerPort: 26257
+              protocol: TCP
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          volumeMounts:
+            - name: datadir
+              mountPath: /cockroach/cockroach-data/
+            - name: certs
+              mountPath: /cockroach/cockroach-certs/
+            - name: certs-secret
+              mountPath: /cockroach/certs/
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health?ready=1
+              port: http
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: datadir
+          persistentVolumeClaim:
+            claimName: datadir
+        - name: certs
+          emptyDir: {}
+        - name: certs-secret
+          secret:
+            secretName: cockroachdb.node
+            defaultMode: 256
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsUser: 1000
+        runAsNonRoot: true
+  volumeClaimTemplates:
+    - metadata:
+        name: datadir
+        labels:
+          app.kubernetes.io/name: cockroachdb
+          app.kubernetes.io/instance: "dss"
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: "100Gi"
+---
+# Source: dss/templates/schema-manager.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    name: rid-schema-manager-1
+  name: rid-schema-manager-1
+  namespace: default
+spec:
+  completions: 1
+  parallelism: 1
+
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
+      labels:
+        name: rid-schema-manager-1
+    spec:
+      initContainers:
+        - name: wait-for-cockroachdb
+          image: alpine:3.17.3
+          command: [ 'sh', '-c', "until wget -nv http://dss-cockroachdb-public.default:8080/health; do echo waiting for cockroachdb; sleep 2; done" ]
+      containers:
+        - args:
+            - --cockroach_host=dss-cockroachdb-public.default
+            - --cockroach_port=26257
+            - --cockroach_ssl_dir=/cockroach/cockroach-certs
+            - --cockroach_ssl_mode=verify-full
+            - --cockroach_user=root
+            - --db_version=4.0.0
+            - --schemas_dir=/db-schemas/rid
+          command:
+            - db-manager
+            - migrate
+          image: docker.io/interuss/dss:v0.15.0
+          imagePullPolicy: IfNotPresent
+          name: rid-schema-manager-1
+          stdin: false
+          tty: false
+          volumeMounts:
+            - mountPath: /cockroach/cockroach-certs/ca.crt
+              name: ca-certs
+              subPath: ca.crt
+            - mountPath: /cockroach/cockroach-certs/client.root.crt
+              name: client-certs
+              subPath: client.root.crt
+            - mountPath: /cockroach/cockroach-certs/client.root.key
+              name: client-certs
+              subPath: client.root.key
+      imagePullSecrets: []
+      restartPolicy: OnFailure
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: ca-certs
+          secret:
+            defaultMode: 256
+            secretName: cockroachdb.ca.crt
+        - name: client-certs
+          secret:
+            defaultMode: 256
+            secretName: cockroachdb.client.root
+---
+# Source: dss/templates/schema-manager.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    name: scd-schema-manager-1
+  name: scd-schema-manager-1
+  namespace: default
+spec:
+  completions: 1
+  parallelism: 1
+
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
+      labels:
+        name: scd-schema-manager-1
+    spec:
+      initContainers:
+        - name: wait-for-cockroachdb
+          image: alpine:3.17.3
+          command: [ 'sh', '-c', "until wget -nv http://dss-cockroachdb-public.default:8080/health; do echo waiting for cockroachdb; sleep 2; done" ]
+      containers:
+        - args:
+            - --cockroach_host=dss-cockroachdb-public.default
+            - --cockroach_port=26257
+            - --cockroach_ssl_dir=/cockroach/cockroach-certs
+            - --cockroach_ssl_mode=verify-full
+            - --cockroach_user=root
+            - --db_version=3.2.0
+            - --schemas_dir=/db-schemas/scd
+          command:
+            - db-manager
+            - migrate
+          image: docker.io/interuss/dss:v0.15.0
+          imagePullPolicy: IfNotPresent
+          name: scd-schema-manager-1
+          stdin: false
+          tty: false
+          volumeMounts:
+            - mountPath: /cockroach/cockroach-certs/ca.crt
+              name: ca-certs
+              subPath: ca.crt
+            - mountPath: /cockroach/cockroach-certs/client.root.crt
+              name: client-certs
+              subPath: client.root.crt
+            - mountPath: /cockroach/cockroach-certs/client.root.key
+              name: client-certs
+              subPath: client.root.key
+      imagePullSecrets: []
+      restartPolicy: OnFailure
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: ca-certs
+          secret:
+            defaultMode: 256
+            secretName: cockroachdb.ca.crt
+        - name: client-certs
+          secret:
+            defaultMode: 256
+            secretName: cockroachdb.client.root
+---
+# Source: dss/templates/cockroachdb-loadbalancers.yaml
+# Node Gateways
+---
+# Source: dss/charts/cockroachdb/templates/tests/client.yaml
+kind: Pod
+apiVersion: v1
+metadata:
+  name: dss-cockroachdb-test
+  namespace: "argocd"
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  restartPolicy: Never
+  volumes:
+    - name: client-certs
+      secret:
+        secretName: cockroachdb.client.root
+        defaultMode: 0400
+  containers:
+    - name: client-test
+      image: "cockroachdb/cockroach:v22.2.7"
+      imagePullPolicy: "IfNotPresent"
+      volumeMounts:
+      - name: client-certs
+        mountPath: /cockroach-certs
+      command:
+        - /cockroach/cockroach
+        - sql
+        - --certs-dir
+        - /cockroach-certs
+        - --host
+        - dss-cockroachdb-public.argocd
+        - --port
+        - "26257"
+        - -e
+        - SHOW DATABASES;
+---
+# Source: dss/charts/cockroachdb/templates/job.init.yaml
+kind: Job
+apiVersion: batch/v1
+metadata:
+  name: dss-cockroachdb-init
+  namespace: "argocd"
+  labels:
+    helm.sh/chart: cockroachdb-10.0.7
+    app.kubernetes.io/name: cockroachdb
+    app.kubernetes.io/instance: "dss"
+    app.kubernetes.io/managed-by: "Helm"
+    app.kubernetes.io/component: init
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cockroachdb
+        app.kubernetes.io/instance: "dss"
+        app.kubernetes.io/component: init
+    spec:
+      securityContext:
+        runAsGroup: 1000
+        runAsUser: 1000
+        fsGroup: 1000
+        runAsNonRoot: true
+      restartPolicy: OnFailure
+      terminationGracePeriodSeconds: 0
+      serviceAccountName: dss-cockroachdb
+      initContainers:
+        - name: copy-certs
+          image: "busybox"
+          imagePullPolicy: "IfNotPresent"
+          command:
+            - /bin/sh
+            - -c
+            - "cp -f /certs/* /cockroach-certs/; chmod 0400 /cockroach-certs/*.key"
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: client-certs
+              mountPath: /cockroach-certs/
+            - name: certs-secret
+              mountPath: /certs/
+      containers:
+        - name: cluster-init
+          image: "cockroachdb/cockroach:v22.2.7"
+          imagePullPolicy: "IfNotPresent"
+          # Run the command in an `while true` loop because this Job is bound
+          # to come up before the CockroachDB Pods (due to the time needed to
+          # get PersistentVolumes attached to Nodes), and sleeping 5 seconds
+          # between attempts is much better than letting the Pod fail when
+          # the init command does and waiting out Kubernetes' non-configurable
+          # exponential back-off for Pod restarts.
+          # Command completes either when cluster initialization succeeds,
+          # or when cluster has been initialized already.
+          command:
+          - /bin/bash
+          - -c
+          - >-
+              initCluster() {
+                while true; do
+                  local output=$(
+                    set -x;
+
+                    /cockroach/cockroach init \
+                      --certs-dir=/cockroach-certs/ \
+                      --host=dss-cockroachdb-0.dss-cockroachdb:26257
+                  2>&1);
+
+                  local exitCode="$?";
+                  echo $output;
+
+                  if [[ "$exitCode" == "0" || "$output" == *"cluster has already been initialized"* ]]
+                    then break;
+                  fi
+
+                  sleep 5;
+                done
+              }
+
+              initCluster;
+          env:
+          volumeMounts:
+            - name: client-certs
+              mountPath: /cockroach-certs/
+      volumes:
+        - name: client-certs
+          emptyDir: {}
+        - name: certs-secret
+          secret:
+            secretName: cockroachdb.client.root
+            defaultMode: 0400
